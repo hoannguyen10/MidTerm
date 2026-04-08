@@ -27,7 +27,7 @@ class UserViewModel : ViewModel() {
             result.onSuccess {
                 _userList.value = it
             }.onFailure {
-                _message.value = it.message ?: "Lỗi tải dữ liệu"
+                _message.value = it.message ?: "Lỗi tải danh sách người dùng"
             }
         }
     }
@@ -36,10 +36,10 @@ class UserViewModel : ViewModel() {
         viewModelScope.launch {
             val result = repository.addUser(user)
             result.onSuccess {
-                _message.value = it
+                _message.value = "Thêm người dùng thành công"
                 loadUsers()
             }.onFailure {
-                _message.value = it.message ?: "Lỗi thêm user"
+                _message.value = it.message ?: "Lỗi khi thêm người dùng"
             }
         }
     }
@@ -48,10 +48,14 @@ class UserViewModel : ViewModel() {
         viewModelScope.launch {
             val result = repository.updateUser(user)
             result.onSuccess {
-                _message.value = it
+                _message.value = "Cập nhật thông tin thành công"
+                // Cập nhật lại currentUser nếu người dùng đang tự sửa thông tin của chính mình
+                if (_currentUser.value?.username == user.username) {
+                    _currentUser.value = user
+                }
                 loadUsers()
             }.onFailure {
-                _message.value = it.message ?: "Lỗi cập nhật"
+                _message.value = it.message ?: "Lỗi khi cập nhật thông tin"
             }
         }
     }
@@ -60,10 +64,10 @@ class UserViewModel : ViewModel() {
         viewModelScope.launch {
             val result = repository.deleteUser(username)
             result.onSuccess {
-                _message.value = it
+                _message.value = "Đã xóa người dùng $username"
                 loadUsers()
             }.onFailure {
-                _message.value = it.message ?: "Lỗi xóa user"
+                _message.value = it.message ?: "Lỗi khi xóa người dùng"
             }
         }
     }
@@ -72,10 +76,10 @@ class UserViewModel : ViewModel() {
         viewModelScope.launch {
             val result = repository.updatePassword(username, newPassword)
             result.onSuccess {
-                _message.value = it
+                _message.value = "Đổi mật khẩu thành công"
                 loadUsers()
             }.onFailure {
-                _message.value = it.message ?: "Lỗi cập nhật mật khẩu"
+                _message.value = it.message ?: "Lỗi khi cập nhật mật khẩu"
             }
         }
     }
@@ -89,11 +93,15 @@ class UserViewModel : ViewModel() {
                     _message.value = "Tên đăng nhập đã tồn tại"
                 } else {
                     repository.addUser(user).onSuccess {
-                        _currentUser.value = user // Cập nhật user hiện tại để vào thẳng Home
-                        _message.value = "Đăng ký thành công"
+                        _currentUser.value = user // Đăng nhập thẳng sau khi đăng ký
+                        _message.value = "Đăng ký tài khoản thành công"
                         onSuccess()
+                    }.onFailure {
+                        _message.value = "Đăng ký thất bại, vui lòng thử lại"
                     }
                 }
+            }.onFailure {
+                _message.value = "Không thể kết nối máy chủ"
             }
         }
     }
@@ -105,19 +113,19 @@ class UserViewModel : ViewModel() {
                 val foundUser = users.find { it.username == username && it.password == password }
                 if (foundUser != null) {
                     _currentUser.value = foundUser
-                    _message.value = "Login successful"
+                    _message.value = "Đăng nhập thành công"
                     onSuccess(foundUser)
                 } else {
-                    _message.value = "Wrong username or password"
+                    _message.value = "Sai tên đăng nhập hoặc mật khẩu"
                 }
             }.onFailure {
-                _message.value = it.message ?: "Lỗi đăng nhập"
+                _message.value = it.message ?: "Lỗi hệ thống khi đăng nhập"
             }
         }
     }
 
     fun logout() {
         _currentUser.value = null
-        _message.value = "Logged out"
+        _message.value = "Đã đăng xuất"
     }
 }

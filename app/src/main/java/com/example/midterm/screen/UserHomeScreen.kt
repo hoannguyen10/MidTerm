@@ -1,9 +1,10 @@
 package com.example.midterm.screen
 
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -27,6 +29,24 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.midterm.model.UserModel
 import com.example.midterm.viewmodel.UserViewModel
+import java.io.File
+import java.io.FileOutputStream
+
+fun saveImageToInternalStorage(context: Context, uri: Uri): String {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri)
+        val fileName = "avatar_${System.currentTimeMillis()}.jpg"
+        val file = File(context.filesDir, fileName)
+        inputStream?.use { input ->
+            FileOutputStream(file).use { output ->
+                input.copyTo(output)
+            }
+        }
+        file.absolutePath
+    } catch (e: Exception) {
+        ""
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,7 +58,9 @@ fun UserHomeScreen(
     userViewModel: UserViewModel = viewModel(),
     onLogout: () -> Unit = {}
 ) {
-    // State lưu trữ thông tin hiển thị trên màn hình
+    val context = LocalContext.current
+
+    // State hiển thị trên màn hình chính
     var displayUsername by remember { mutableStateOf(username) }
     var userImageUri by remember { mutableStateOf(imageUri) }
     val message by userViewModel.message.collectAsState()
@@ -48,12 +70,12 @@ fun UserHomeScreen(
     var editUsername by remember { mutableStateOf(username) }
     var editPassword by remember { mutableStateOf(currentPassword) }
     var isPasswordVisible by remember { mutableStateOf(false) }
+    var tempSelectedUri by remember { mutableStateOf<Uri?>(null) }
 
-    // Launcher để chọn ảnh
     val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.PickVisualMedia() // Cái này sẽ mở giao diện chọn ảnh chuyên nghiệp
     ) { uri: Uri? ->
-        uri?.let { userImageUri = it.toString() }
+        uri?.let { tempSelectedUri = it }
     }
 
     Scaffold(
@@ -68,7 +90,7 @@ fun UserHomeScreen(
                 .fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 1. Ảnh đại diện (Chỉ xem)
+            // --- PHẦN HIỂN THỊ THÔNG TIN ---
             Box(
                 modifier = Modifier
                     .size(120.dp)
@@ -91,14 +113,12 @@ fun UserHomeScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 2. Hiển thị Tên (Chỉ xem)
             Text(
                 text = displayUsername,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold
             )
 
-            // 3. Hiển thị Role
             Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = CircleShape,
@@ -114,22 +134,22 @@ fun UserHomeScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // Nút mở Dialog Chỉnh sửa
+            // --- CÁC NÚT BẤM ---
             Button(
                 onClick = {
                     editUsername = displayUsername
+                    editPassword = currentPassword
                     isEditDialogOpen = true
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Default.Edit, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Chỉnh sửa thông tin")
+                Text("Chỉnh sửa hồ sơ")
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Nút Đăng xuất
             OutlinedButton(
                 onClick = onLogout,
                 modifier = Modifier.fillMaxWidth(),
@@ -139,33 +159,37 @@ fun UserHomeScreen(
             }
 
             if (message.isNotEmpty()) {
-                Text(text = message, modifier = Modifier.padding(top = 16.dp))
+                Text(text = message, modifier = Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.primary)
             }
 
-            // --- DIALOG CHỈNH SỬA TỔNG HỢP ---
+            // --- DIALOG CHỈNH SỬA ---
             if (isEditDialogOpen) {
                 AlertDialog(
                     onDismissRequest = { isEditDialogOpen = false },
-                    title = { Text("Cập nhật hồ sơ") },
+                    title = { Text("Cập nhật thông tin") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            // Sửa Ảnh
+
                             OutlinedButton(
-                                onClick = { imagePickerLauncher.launch("image/*") },
+                                onClick = {
+                                    imagePickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Thay đổi ảnh đại diện")
+                                Text(if (tempSelectedUri != null) "Đã chọn ảnh mới" else "Thay đổi ảnh đại diện")
                             }
 
-                            // Sửa Tên
+                            // 2. Sửa Tên
                             OutlinedTextField(
                                 value = editUsername,
                                 onValueChange = { editUsername = it },
-                                label = { Text("Tên người dùng mới") },
+                                label = { Text("Tên người dùng") },
                                 modifier = Modifier.fillMaxWidth()
                             )
 
-                            // Sửa Mật khẩu (Có ẩn/hiện)
+
                             OutlinedTextField(
                                 value = editPassword,
                                 onValueChange = { editPassword = it },
@@ -183,16 +207,31 @@ fun UserHomeScreen(
                     },
                     confirmButton = {
                         Button(onClick = {
+                            // Xử lý lưu ảnh cục bộ nếu có chọn ảnh mới
+                            val finalPath = if (tempSelectedUri != null) {
+                                saveImageToInternalStorage(context, tempSelectedUri!!)
+                            } else {
+                                userImageUri
+                            }
+
+                            // Cập nhật trạng thái và ViewModel
                             displayUsername = editUsername
-                            val updatedUser = UserModel(editUsername, editPassword, role, userImageUri)
+                            userImageUri = finalPath
+
+                            val updatedUser = UserModel(editUsername, editPassword, role, finalPath)
                             userViewModel.updateUser(updatedUser)
+
                             isEditDialogOpen = false
+                            tempSelectedUri = null // Reset ảnh tạm
                         }) {
-                            Text("Lưu tất cả")
+                            Text("Lưu thay đổi")
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { isEditDialogOpen = false }) {
+                        TextButton(onClick = {
+                            isEditDialogOpen = false
+                            tempSelectedUri = null
+                        }) {
                             Text("Hủy")
                         }
                     }

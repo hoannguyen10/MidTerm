@@ -1,7 +1,9 @@
 package com.example.midterm.screen
 
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -21,18 +23,38 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.midterm.model.UserModel
 import com.example.midterm.viewmodel.UserViewModel
+import java.io.File
+import java.io.FileOutputStream
+
+fun saveAdminImageToInternalStorage(context: Context, uri: Uri): String {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri)
+        val fileName = "avatar_${System.currentTimeMillis()}.jpg"
+        val file = File(context.filesDir, fileName)
+        inputStream?.use { input ->
+            FileOutputStream(file).use { output ->
+                input.copyTo(output)
+            }
+        }
+        file.absolutePath
+    } catch (e: Exception) {
+        ""
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminHomeScreen(
     userViewModel: UserViewModel = viewModel(),
-    onLogout: () -> Unit // Thêm callback để xử lý đăng xuất
+    onLogout: () -> Unit // Callback xử lý đăng xuất
 ) {
+    val context = LocalContext.current // Thêm context để lưu file
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
@@ -40,13 +62,18 @@ fun AdminHomeScreen(
     var isEditing by remember { mutableStateOf(false) }
     var showDialog by remember { mutableStateOf(false) }
 
+    var tempSelectedUri by remember { mutableStateOf<Uri?>(null) }
+
     val userList by userViewModel.userList.collectAsState()
     val message by userViewModel.message.collectAsState()
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
-        imageUri = uri?.toString() ?: ""
+        uri?.let {
+            tempSelectedUri = it
+            imageUri = it.toString()
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -56,13 +83,12 @@ fun AdminHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("User Management") },
-                // Nút Logout được đặt ở góc phải thanh tiêu đề
+                title = { Text("Quản lý người dùng") },
                 actions = {
                     IconButton(onClick = onLogout) {
                         Icon(
                             imageVector = Icons.Default.ExitToApp,
-                            contentDescription = "Logout",
+                            contentDescription = "Đăng xuất",
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
@@ -92,19 +118,20 @@ fun AdminHomeScreen(
                     password = ""
                     role = ""
                     imageUri = ""
+                    tempSelectedUri = null // Reset biến tạm
                     isEditing = false
                     showDialog = true
                 },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Text("Add User")
+                Text("Thêm người dùng mới")
             }
 
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "User List",
+                text = "Danh sách người dùng",
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -142,7 +169,7 @@ fun AdminHomeScreen(
                                 if (user.imageUri.isNotBlank()) {
                                     AsyncImage(
                                         model = user.imageUri,
-                                        contentDescription = "User Avatar",
+                                        contentDescription = "Ảnh đại diện",
                                         modifier = Modifier
                                             .size(60.dp)
                                             .clip(CircleShape),
@@ -158,7 +185,7 @@ fun AdminHomeScreen(
                                     ) {
                                         Image(
                                             imageVector = Icons.Default.Person,
-                                            contentDescription = "Default Avatar",
+                                            contentDescription = "Ảnh mặc định",
                                             modifier = Modifier.size(30.dp)
                                         )
                                     }
@@ -196,7 +223,7 @@ fun AdminHomeScreen(
                                     if (isAdmin) {
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            text = "Protected account",
+                                            text = "Tài khoản hệ thống",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.error
                                         )
@@ -214,12 +241,13 @@ fun AdminHomeScreen(
                                             password = user.password
                                             role = user.role
                                             imageUri = user.imageUri
+                                            tempSelectedUri = null // Reset biến tạm khi bắt đầu sửa
                                             isEditing = true
                                             showDialog = true
                                         },
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
-                                        Text("Edit")
+                                        Text("Sửa")
                                     }
 
                                     Button(
@@ -231,7 +259,7 @@ fun AdminHomeScreen(
                                         ),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
-                                        Text("Delete")
+                                        Text("Xóa")
                                     }
                                 }
                             }
@@ -243,10 +271,13 @@ fun AdminHomeScreen(
 
         if (showDialog) {
             AlertDialog(
-                onDismissRequest = { showDialog = false },
+                onDismissRequest = {
+                    showDialog = false
+                    tempSelectedUri = null
+                },
                 confirmButton = {},
                 title = {
-                    Text(if (isEditing) "Edit User" else "Add User")
+                    Text(if (isEditing) "Chỉnh sửa người dùng" else "Thêm người dùng mới")
                 },
                 text = {
                     Column(
@@ -260,14 +291,17 @@ fun AdminHomeScreen(
                                 .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .clickable {
-                                    imagePickerLauncher.launch("image/*")
+                                    // Sửa: Dùng PickVisualMediaRequest (Giống UserHomeScreen)
+                                    imagePickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
                                 },
                             contentAlignment = Alignment.Center
                         ) {
                             if (imageUri.isNotBlank()) {
                                 AsyncImage(
                                     model = imageUri,
-                                    contentDescription = "Avatar",
+                                    contentDescription = "Ảnh đại diện",
                                     modifier = Modifier
                                         .size(110.dp)
                                         .clip(CircleShape),
@@ -276,7 +310,7 @@ fun AdminHomeScreen(
                             } else {
                                 Image(
                                     imageVector = Icons.Default.Person,
-                                    contentDescription = "Default Avatar",
+                                    contentDescription = "Ảnh mặc định",
                                     modifier = Modifier.size(50.dp)
                                 )
                             }
@@ -285,7 +319,7 @@ fun AdminHomeScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Text(
-                            text = "Tap avatar to upload",
+                            text = "Nhấn vào ảnh để thay đổi",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -295,9 +329,10 @@ fun AdminHomeScreen(
                         OutlinedTextField(
                             value = username,
                             onValueChange = { username = it },
-                            label = { Text("Username") },
+                            label = { Text("Tên đăng nhập") },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp)
+                            shape = RoundedCornerShape(14.dp),
+                            readOnly = isEditing
                         )
 
                         Spacer(modifier = Modifier.height(10.dp))
@@ -305,7 +340,7 @@ fun AdminHomeScreen(
                         OutlinedTextField(
                             value = password,
                             onValueChange = { password = it },
-                            label = { Text("Password") },
+                            label = { Text("Mật khẩu") },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp)
                         )
@@ -313,7 +348,7 @@ fun AdminHomeScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            text = "Choose Role",
+                            text = "Chọn vai trò",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.align(Alignment.Start)
@@ -340,8 +375,7 @@ fun AdminHomeScreen(
                                 ) {
                                     RadioButton(
                                         selected = role == "admin",
-                                        onClick = { role = "admin" },
-                                        colors = RadioButtonDefaults.colors()
+                                        onClick = { role = "admin" }
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text("Admin")
@@ -356,8 +390,7 @@ fun AdminHomeScreen(
                                 ) {
                                     RadioButton(
                                         selected = role == "user",
-                                        onClick = { role = "user" },
-                                        colors = RadioButtonDefaults.colors()
+                                        onClick = { role = "user" }
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text("User")
@@ -374,11 +407,19 @@ fun AdminHomeScreen(
                             Button(
                                 onClick = {
                                     if (username.isNotBlank() && password.isNotBlank() && role.isNotBlank()) {
+
+                                        // Sửa: Xử lý lưu ảnh cục bộ trước khi truyền vào UserModel
+                                        val finalPath = if (tempSelectedUri != null) {
+                                            saveAdminImageToInternalStorage(context, tempSelectedUri!!)
+                                        } else {
+                                            imageUri
+                                        }
+
                                         val user = UserModel(
                                             username = username,
                                             password = password,
                                             role = role,
-                                            imageUri = imageUri
+                                            imageUri = finalPath
                                         )
 
                                         if (isEditing) {
@@ -387,28 +428,25 @@ fun AdminHomeScreen(
                                             userViewModel.addUser(user)
                                         }
 
-                                        username = ""
-                                        password = ""
-                                        role = ""
-                                        imageUri = ""
-                                        isEditing = false
                                         showDialog = false
+                                        tempSelectedUri = null // Clear biến tạm
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(14.dp)
                             ) {
-                                Text(if (isEditing) "Update" else "Save")
+                                Text(if (isEditing) "Cập nhật" else "Lưu lại")
                             }
 
                             OutlinedButton(
                                 onClick = {
                                     showDialog = false
+                                    tempSelectedUri = null
                                 },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(14.dp)
                             ) {
-                                Text("Cancel")
+                                Text("Hủy")
                             }
                         }
                     }
